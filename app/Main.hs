@@ -7,7 +7,19 @@ import qualified Extra
 import qualified Crypto.PubKey.Ed25519 as Ed25519
 import Crypto.Error
 import qualified Data.ByteString.Base64 as Base64
+import qualified Data.ByteString.Base16 as Base16
+import Crypto.Hash
 
+sha512 :: C.ByteString -> String
+sha512 bs = show (hash bs :: Digest SHA512)
+
+intArrayToByteString :: [Int] -> C.ByteString
+intArrayToByteString = BS.pack . map fromIntegral
+
+hexStringToIntList :: String -> Either String [Int]
+hexStringToIntList hexStr = do
+    decoded <- Base16.decode (C.pack hexStr)
+    return $ map fromIntegral (BS.unpack decoded)
 
 unarmorSignature :: C.ByteString -> C.ByteString
 unarmorSignature = removeHeader . removeFooter . removeLinebreaks
@@ -21,7 +33,13 @@ unarmorSignature = removeHeader . removeFooter . removeLinebreaks
 main :: IO ()
 main = do 
         message <- BS.readFile "data/message.txt"
-        print message
+        let hash = Extra.fromRight' $ hexStringToIntList $ sha512 message
+        let intSignedText = [ 83, 83, 72, 83, 73, 71, 0, 0, 0, 4 -- SSHSIG magic header
+                    , 102, 105, 108, 101 -- namespace ("file")
+                    , 0, 0, 0, 0, 0, 0, 0, 6 -- reserved
+                    , 115, 104, 97, 53, 49, 50, 0, 0, 0, 64 -- hash alg (sha512)
+                    ] ++ hash
+        print (intArrayToByteString intSignedText)
 
         signatureWrapped <- BS.readFile "data/message.txt.sig"
         let signatureDecoded = Extra.fromRight' $ Base64.decode $ unarmorSignature signatureWrapped
@@ -36,6 +54,6 @@ main = do
         key <- throwCryptoErrorIO $ Ed25519.publicKey keyBS
         print key
 
-        let result = Ed25519.verify key message signature
+        let result = Ed25519.verify key (intArrayToByteString intSignedText) signature
         print result
         
